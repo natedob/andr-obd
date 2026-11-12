@@ -18,7 +18,7 @@ object AppModule {
     // One database instance for the whole process (the old code built a new one per screen).
     @Provides @Singleton
     fun database(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "ecodrive.db").build()
+        Room.databaseBuilder(context, AppDatabase::class.java, "androbd.db").build()
 
     @Provides fun driverDao(db: AppDatabase): DriverDao = db.driverDao()
     @Provides fun tripDao(db: AppDatabase): TripDao = db.tripDao()
