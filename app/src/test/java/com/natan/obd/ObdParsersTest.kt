@@ -43,6 +43,18 @@ class ObdParsersTest {
 
     @Test fun rejectsReplyForADifferentPid() = assertNull(ObdParsers.decode("41 0D 3C", Pid.RPM))
 
+    @Test fun decodesLambda() {
+        assertEquals(1.0, ObdParsers.decode("41 24 80 00 7F FF", Pid.LAMBDA_24)!!, 0.001)
+        assertEquals(2.0, ObdParsers.decode("41 34 FF FF 80 00", Pid.LAMBDA_34)!!, 0.001)
+    }
+
+    @Test fun dieselFuelUsesLambdaAndDieselDensity() {
+        // 20 g/s of air at lambda 2: AFR 29, so 0.69 g/s of fuel = 2.98 L/h at 832 g/L.
+        assertEquals(2.98, ObdParsers.dieselLitresPerHour(20.0, 2.0), 0.01)
+        // The petrol formula on the same reading would claim ~2x as much, which is why the engine type matters.
+        assertEquals(6.6, ObdParsers.mafToLitresPerHour(20.0), 0.05)
+    }
+
     @Test fun mafConversionMatchesKnownValue() {
         // 14.7 g/s of air is 1 g/s of fuel = 3600 g/h / 740 g/L = 4.86 L/h
         assertEquals(4.86, ObdParsers.mafToLitresPerHour(14.7), 0.01)

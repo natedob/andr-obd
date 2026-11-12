@@ -53,7 +53,14 @@ data class LiveData(
     val coaching: Coaching = Coaching(),
     /** True while above the user's speed-alert limit (only ever set when the alert is enabled). */
     val speeding: Boolean = false,
-)
+    // Fuel: each is null when the car doesn't give us enough to work it out.
+    val tankPercent: Double? = null,
+    val instantLph: Double? = null,
+    val instantL100: Double? = null,
+    val avgL100: Double? = null,
+) {
+    val hasFuelInfo: Boolean get() = tankPercent != null || instantLph != null || avgL100 != null
+}
 
 /** Engine vitals shown on the dashboard; a null field means the car doesn't report it. */
 data class Vitals(
@@ -127,6 +134,7 @@ class TripController @Inject constructor(
         val coach = CoachingAdvisor(settings.toTargets())
         val alert = if (settings.speedAlertEnabled) SpeedAlertPolicy(settings.speedAlertKmh) else null
         val recorder = RouteRecorder()
+        val smoother = ConsumptionSmoother()
         val eco = AtomicInteger(0)
         // Demo mode walks a fake route at the simulated speed; a real trip uses the phone's GPS.
         val fakeRoute = if (settings.demoMode && settings.recordRoute) {
@@ -168,7 +176,7 @@ class TripController @Inject constructor(
                         recorder.add(it.lat, it.lon, now, coaching.ecoNow)
                     }
                     previousMs = now
-                    publish(driverName, sample, accumulator, now, coaching, alert?.isOver == true)
+                    publish(driverName, sample, accumulator, now, coaching, alert?.isOver == true, smoother.update(sample.fuelRateLph, sample.speedKmh, now))
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -192,7 +200,7 @@ class TripController @Inject constructor(
     }
 
     private fun createSource(settings: AppSettings): ObdSource? =
-        if (settings.demoMode) SimulatedObdSource() else bluetooth.openClient()?.let(::ElmObdSource)
+        if (settings.demoMode) SimulatedObdSource() else bluetooth.openClient()?.let { ElmObdSource(it, diesel = settings.dieselEngine) }
 
     /** A short double-beep on the notification stream; failures (some devices lack the tone) are harmless. */
     private fun beep() {
@@ -213,8 +221,13 @@ class TripController @Inject constructor(
         nowMs: Long,
         coaching: Coaching,
         speeding: Boolean,
+        consumption: Consumption,
     ) {
         val stats = acc.snapshot()
+        // The trip average needs a little distance behind it, or it swings wildly in the first minutes.
+        val avgL100 = stats.fuelLitres
+            ?.takeIf { stats.distanceKm >= MIN_DISTANCE_FOR_AVERAGE_KM && it > 0 }
+            ?.let { it / stats.distanceKm * 100 }
         _state.value = TripState.Running(
             driverName,
             LiveData(
@@ -231,6 +244,10 @@ class TripController @Inject constructor(
                 ),
                 coaching = coaching,
                 speeding = speeding,
+                tankPercent = sample.tankPercent,
+                instantLph = consumption.litresPerHour,
+                instantL100 = consumption.litresPer100,
+                avgL100 = avgL100,
             ),
         )
     }
@@ -288,5 +305,6 @@ class TripController @Inject constructor(
     private companion object {
         const val MIN_TRIP_MS = 10_000L
         const val MIN_DISTANCE_FOR_CONSUMPTION_KM = 0.5
+        const val MIN_DISTANCE_FOR_AVERAGE_KM = 0.3
     }
 }

@@ -21,6 +21,9 @@ class Units(val imperial: Boolean) {
         if (imperial && litresPer100 > 0) "${formatDecimal(MPG_FACTOR / litresPer100)} mpg"
         else "${formatDecimal(litresPer100)} L/100 km"
 
+    fun fuelRate(litresPerHour: Double): String =
+        if (imperial) "${formatDecimal(litresPerHour * LITRES_TO_GALLONS)} gal/h" else "${formatDecimal(litresPerHour)} L/h"
+
     fun volume(litres: Double): String =
         if (imperial) "${formatDecimal(litres * LITRES_TO_GALLONS, 2)} gal" else "${formatDecimal(litres, 2)} L"
 

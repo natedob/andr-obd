@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -36,6 +37,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.natan.obd.R
 import com.natan.obd.diag.Dtc
 import com.natan.obd.diag.DtcReport
+import com.natan.obd.obd.FuelMethod
+import com.natan.obd.obd.SupportedPids
 import com.natan.obd.ui.components.ScreenTitle
 import com.natan.obd.ui.components.SurfaceCard
 import com.natan.obd.ui.theme.Coral
@@ -71,6 +74,28 @@ fun DiagnosticsScreen(viewModel: DiagnosticsViewModel = hiltViewModel()) {
             Text(stringResource(R.string.diag_scanning), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
+        SurfaceCard {
+            Text(stringResource(R.string.sup_title), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.sup_intro), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            OutlinedButton(
+                onClick = viewModel::checkSupport,
+                enabled = state.canScan && !state.tripRunning && !busy && state.support != SupportPhase.Busy,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            ) { Text(stringResource(R.string.sup_check)) }
+        }
+        when (val support = state.support) {
+            SupportPhase.Busy -> {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text(stringResource(R.string.diag_scanning), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            is SupportPhase.Done -> SupportReport(support.pids, support.diesel)
+            is SupportPhase.Failed -> Text(support.message, color = MaterialTheme.colorScheme.error)
+            SupportPhase.Idle -> Unit
+        }
+
         when (val phase = state.phase) {
             is DiagPhase.Done -> {
                 if (phase.justCleared) Text(stringResource(R.string.diag_cleared), color = Mint)
@@ -98,6 +123,90 @@ fun DiagnosticsScreen(viewModel: DiagnosticsViewModel = hiltViewModel()) {
             },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
+    }
+}
+
+private class DashboardReading(val labelRes: Int, val pid: Int)
+
+private val DASHBOARD_READINGS = listOf(
+    DashboardReading(R.string.sup_rpm, 0x0C),
+    DashboardReading(R.string.sup_speed, 0x0D),
+    DashboardReading(R.string.sup_load, 0x04),
+    DashboardReading(R.string.vital_coolant, 0x05),
+    DashboardReading(R.string.vital_oil, 0x5C),
+    DashboardReading(R.string.vital_intake, 0x0F),
+    DashboardReading(R.string.vital_throttle, 0x11),
+    DashboardReading(R.string.vital_map, 0x0B),
+    DashboardReading(R.string.vital_voltage, 0x42),
+    DashboardReading(R.string.fuel_tank, 0x2F),
+)
+
+/** Readings the app can use today; everything else is listed so you can see what else the car offers. */
+private val USED_PIDS = DASHBOARD_READINGS.map { it.pid }.toSet() + setOf(0x10, 0x24, 0x34, 0x5E)
+
+@Composable
+private fun SupportReport(pids: Set<Int>, diesel: Boolean) {
+    SurfaceCard {
+        Text(stringResource(R.string.sup_dashboard), style = MaterialTheme.typography.titleMedium)
+        DASHBOARD_READINGS.forEach { reading ->
+            val ok = reading.pid in pids
+            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (ok) Icons.Default.CheckCircle else Icons.Default.Close, null,
+                    tint = if (ok) Mint else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.size(12.dp))
+                Text(
+                    stringResource(reading.labelRes),
+                    color = if (ok) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+
+    val method = SupportedPids.fuelMethod(pids, diesel)
+    SurfaceCard {
+        Text(stringResource(R.string.sup_fuel_method), style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(
+                when (method) {
+                    FuelMethod.DIRECT_RATE -> R.string.fuel_method_direct
+                    FuelMethod.MAF_ESTIMATE -> R.string.fuel_method_maf
+                    FuelMethod.MAF_LAMBDA_ESTIMATE -> R.string.fuel_method_maf_lambda
+                    FuelMethod.TANK_GAUGE_ONLY -> R.string.fuel_method_tank
+                    FuelMethod.NONE -> R.string.fuel_method_none
+                },
+            ),
+            modifier = Modifier.padding(top = 8.dp),
+            color = if (method == FuelMethod.NONE || method == FuelMethod.TANK_GAUGE_ONLY) Coral else Mint,
+        )
+        Text(
+            stringResource(if (diesel) R.string.fuel_method_diesel_hint else R.string.fuel_method_petrol_hint),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+
+    var expanded by remember { mutableStateOf(false) }
+    val listed = pids.filterNot(SupportedPids::isRangeMarker).sorted()
+    SurfaceCard {
+        TextButton(onClick = { expanded = !expanded }) {
+            Text(stringResource(R.string.sup_all, listed.size))
+        }
+        if (expanded) {
+            listed.forEach { pid ->
+                Row(Modifier.padding(top = 8.dp)) {
+                    Text("%02X".format(pid), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(end = 12.dp))
+                    Column {
+                        Text(SupportedPids.name(pid) ?: "-", style = MaterialTheme.typography.bodyMedium)
+                        if (pid in USED_PIDS) {
+                            Text(stringResource(R.string.sup_used), style = MaterialTheme.typography.bodySmall, color = Mint)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

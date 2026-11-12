@@ -65,6 +65,27 @@ class DiagnosticsController @Inject constructor(
         if (!reply.contains("44")) throw IOException(context.getString(R.string.err_clear_failed))
     }
 
+    /** Every mode 01 PID this car answers. */
+    suspend fun supportedPids(): Result<Set<Int>> = guarded {
+        if (settingsRepository.settings.first().demoMode) {
+            delay(1_000)
+            return@guarded DEMO_PIDS
+        }
+        val client = bluetooth.openClient() ?: throw IOException(context.getString(R.string.err_no_adapter))
+        client.initialise()
+        client.readSupportedPids().also {
+            if (it.isEmpty()) throw IOException(context.getString(R.string.err_no_pid_support))
+        }
+    }
+
+    private companion object {
+        /** A made-up but plausible diesel set, so demo mode shows both supported and missing readings. */
+        val DEMO_PIDS = setOf(
+            0x01, 0x03, 0x04, 0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x1C, 0x1F, 0x20,
+            0x21, 0x23, 0x2F, 0x33, 0x40, 0x42, 0x46, 0x5C, 0x60, 0x70, 0x78, 0x7A,
+        )
+    }
+
     private fun dtc(code: String) = Dtc(code, DtcDescriptions.describe(code))
 
     private suspend fun <T> guarded(block: suspend () -> T): Result<T> = withContext(Dispatchers.IO) {

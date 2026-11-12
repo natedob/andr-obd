@@ -37,6 +37,10 @@
     <string name="btn_stop">Stop and save trip</string>
     <string name="hint_add_driver">Add a driver to get started.</string>
     <string name="hint_connect">Connect an adapter, or switch on demo mode.</string>
+    <string name="fuel_title">Fuel</string>
+    <string name="fuel_tank">Tank</string>
+    <string name="fuel_now">Now</string>
+    <string name="fuel_avg">Trip average</string>
     <string name="vitals_title">Engine vitals</string>
     <string name="vital_coolant">Coolant</string>
     <string name="vital_oil">Oil</string>
@@ -125,6 +129,25 @@
     <string name="diag_needs_connection">Connect your adapter on the Drive tab (or turn on demo mode) to scan.</string>
     <string name="diag_trip_running">A trip is running. Stop it before scanning.</string>
 
+    <string name="sup_title">Supported readings</string>
+    <string name="sup_intro">Find out which dashboard readings your car actually provides.</string>
+    <string name="sup_check">Check my car</string>
+    <string name="sup_dashboard">Dashboard readings</string>
+    <string name="sup_rpm">Engine speed</string>
+    <string name="sup_speed">Vehicle speed</string>
+    <string name="sup_load">Engine load</string>
+    <string name="sup_fuel_method">Fuel consumption</string>
+    <string name="fuel_method_direct">Read directly from the car (accurate)</string>
+    <string name="fuel_method_maf">Estimated from air flow (petrol)</string>
+    <string name="fuel_method_maf_lambda">Estimated from air flow and lambda (diesel)</string>
+    <string name="fuel_method_tank">Only from the tank gauge: trip average, no live figure</string>
+    <string name="fuel_method_none">Not available on this car</string>
+    <string name="fuel_method_diesel_hint">Diesel engine is switched on in Settings.</string>
+    <string name="fuel_method_petrol_hint">Diesel engine is off in Settings. For a diesel car, switch it on.</string>
+    <string name="sup_all">All supported readings (%1$d)</string>
+    <string name="sup_used">used by the app</string>
+    <string name="err_no_pid_support">The car did not report any supported readings.</string>
+
     <!-- Share / export / map -->
     <string name="share_card">Share score card</string>
     <string name="share_title">Share your trip</string>
@@ -139,6 +162,8 @@
     <!-- Settings -->
     <string name="settings_vehicle">Vehicle profile</string>
     <string name="settings_vehicle_sub">Your ideal values. The eco score measures how closely a trip stays to them.</string>
+    <string name="set_diesel">Diesel engine</string>
+    <string name="set_diesel_sub">Changes how fuel use is estimated. Switch on for diesel cars; otherwise consumption can read about double.</string>
     <string name="set_tank">Fuel tank (L)</string>
     <string name="set_rpm">Optimal RPM</string>
     <string name="set_speed">Optimal speed (km/h)</string>

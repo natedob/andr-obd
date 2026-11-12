@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -25,8 +26,16 @@ sealed interface DiagPhase {
     data class Failed(val message: String) : DiagPhase
 }
 
+sealed interface SupportPhase {
+    data object Idle : SupportPhase
+    data object Busy : SupportPhase
+    data class Done(val pids: Set<Int>, val diesel: Boolean) : SupportPhase
+    data class Failed(val message: String) : SupportPhase
+}
+
 data class DiagUiState(
     val phase: DiagPhase = DiagPhase.Idle,
+    val support: SupportPhase = SupportPhase.Idle,
     val canScan: Boolean = false,
     val tripRunning: Boolean = false,
 )
@@ -39,18 +48,32 @@ class DiagnosticsViewModel @Inject constructor(
     tripController: TripController,
 ) : ViewModel() {
     private val phase = MutableStateFlow<DiagPhase>(DiagPhase.Idle)
+    private val support = MutableStateFlow<SupportPhase>(SupportPhase.Idle)
+    private val settings = settingsRepository
 
     val uiState: StateFlow<DiagUiState> = combine(
-        phase, settingsRepository.settings, bluetooth.state, tripController.state,
-    ) { phase, settings, link, trip ->
+        phase, support, settingsRepository.settings, bluetooth.state, tripController.state,
+    ) { phase, support, settings, link, trip ->
         DiagUiState(
             phase = phase,
+            support = support,
             canScan = settings.demoMode || link is LinkState.Connected,
             tripRunning = trip is TripState.Running,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DiagUiState())
 
     fun scan() = runScan(justCleared = false)
+
+    fun checkSupport() {
+        if (support.value == SupportPhase.Busy) return
+        support.value = SupportPhase.Busy
+        viewModelScope.launch {
+            val diesel = settings.settings.first().dieselEngine
+            diagnostics.supportedPids()
+                .onSuccess { support.value = SupportPhase.Done(it, diesel) }
+                .onFailure { support.value = SupportPhase.Failed(it.message.orEmpty()) }
+        }
+    }
 
     fun clear() {
         if (phase.value == DiagPhase.Busy) return

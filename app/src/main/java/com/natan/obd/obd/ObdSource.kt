@@ -16,6 +16,8 @@ data class ObdSample(
     val throttlePercent: Double? = null,
     val manifoldKpa: Int? = null,
     val voltage: Double? = null,
+    /** Fuel tank level in percent, for display. (fuelLevelPercent above is the accumulator's fresh-reading input.) */
+    val tankPercent: Double? = null,
 )
 
 /** Where vehicle data comes from: a real adapter or the simulator. */

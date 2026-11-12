@@ -154,6 +154,10 @@ fun DriveScreen(
 
         Dashboard(live = running?.live ?: LiveData(), units = units)
 
+        if (running != null && running.live.hasFuelInfo) {
+            FuelSection(running.live, state.settings.tankLitres, state.settings.optimalConsumption, units)
+        }
+
         if (running != null && running.live.vitals.any) VitalsSection(running.live.vitals, units)
 
         if (running != null && !running.live.hasData) {
@@ -367,6 +371,37 @@ private fun Dashboard(live: LiveData, units: Units) {
                     colors = listOf(Mint, Amber, Coral), gaugeSize = 140.dp,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun FuelSection(live: LiveData, tankLitres: Double, targetL100: Double, units: Units) {
+    // Consumption is coloured against the driver's own target: at or under is green, up to 30% over is amber.
+    fun consColor(l100: Double) = when {
+        l100 <= targetL100 -> Mint
+        l100 <= targetL100 * 1.3 -> Amber
+        else -> Coral
+    }
+    val tiles = buildList {
+        live.tankPercent?.let {
+            val litres = it / 100 * tankLitres
+            add(Vital(R.string.fuel_tank, "${it.toInt()} % · ${units.volume(litres)}", (it / 100).toFloat(),
+                if (it < 15) Coral else if (it < 30) Amber else Teal))
+        }
+        // Standing still there is no per-distance figure, so show litres per hour instead.
+        live.instantL100?.let { add(Vital(R.string.fuel_now, units.consumption(it), (it / (targetL100 * 2)).toFloat(), consColor(it))) }
+            ?: live.instantLph?.let { add(Vital(R.string.fuel_now, units.fuelRate(it), (it / 20).toFloat(), Sky)) }
+        live.avgL100?.let { add(Vital(R.string.fuel_avg, units.consumption(it), (it / (targetL100 * 2)).toFloat(), consColor(it))) }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            stringResource(R.string.fuel_title).uppercase(), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            tiles.forEach { t -> VitalTile(stringResource(t.label), t.text, t.fraction, t.color, Modifier.weight(1f)) }
+            repeat(3 - tiles.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }

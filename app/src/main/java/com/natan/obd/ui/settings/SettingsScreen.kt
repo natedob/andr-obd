@@ -59,6 +59,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 stringResource(R.string.settings_vehicle_sub), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
             )
+            SwitchRow(R.string.set_diesel, R.string.set_diesel_sub, loaded.dieselEngine) { v -> viewModel.update { it.copy(dieselEngine = v) } }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // The form is only composed once settings are loaded, so each field's initial text is the real value.
                 NumberField(R.string.set_tank, loaded.tankLitres, decimal = true) { v -> viewModel.update { it.copy(tankLitres = v) } }

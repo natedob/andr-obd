@@ -51,6 +51,23 @@ class Elm327Client(
         if ("4100" !in reply) throw IOException("The adapter can't reach the car. Is the ignition on?")
     }
 
+    /**
+     * Asks which PIDs the car supports. They come in blocks of 32: 01 00 covers 01-20, 01 20 covers 21-40, and
+     * so on, and the last PID of each block says whether the next block exists.
+     */
+    suspend fun readSupportedPids(): Set<Int> {
+        val all = HashSet<Int>()
+        var base = 0x00
+        while (base <= 0xC0) {
+            val bytes = ObdParsers.bytes(send("01%02X".format(base)), "%02X".format(base)) ?: break
+            val block = SupportedPids.parseMask(bytes, base)
+            all += block
+            if ((base + 0x20) !in block) break
+            base += 0x20
+        }
+        return all
+    }
+
     /** Reads one PID; null means the car doesn't support it or had no data right now. */
     suspend fun read(pid: Pid): Double? = ObdParsers.decode(send(pid.request), pid)
 }

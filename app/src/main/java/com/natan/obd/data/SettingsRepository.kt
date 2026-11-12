@@ -30,6 +30,7 @@ data class AppSettings(
     val recordRoute: Boolean = false,
     val speedAlertEnabled: Boolean = false,
     val speedAlertKmh: Int = 130,
+    val dieselEngine: Boolean = false,
 ) {
     fun toTargets() = ScoreTargets(optimalRpm, optimalSpeed, optimalLoad, optimalConsumption)
 }
@@ -55,6 +56,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             prefs[ROUTE] = new.recordRoute
             prefs[ALERT_ON] = new.speedAlertEnabled
             prefs[ALERT_KMH] = new.speedAlertKmh
+            prefs[DIESEL] = new.dieselEngine
             if (new.lastDeviceAddress == null) prefs.remove(DEVICE) else prefs[DEVICE] = new.lastDeviceAddress
         }
     }
@@ -74,6 +76,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             recordRoute = this[ROUTE] ?: d.recordRoute,
             speedAlertEnabled = this[ALERT_ON] ?: d.speedAlertEnabled,
             speedAlertKmh = this[ALERT_KMH] ?: d.speedAlertKmh,
+            dieselEngine = this[DIESEL] ?: d.dieselEngine,
         )
     }
 
@@ -90,5 +93,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val ROUTE = booleanPreferencesKey("record_route")
         val ALERT_ON = booleanPreferencesKey("speed_alert")
         val ALERT_KMH = intPreferencesKey("speed_alert_kmh")
+        val DIESEL = booleanPreferencesKey("diesel_engine")
     }
 }
