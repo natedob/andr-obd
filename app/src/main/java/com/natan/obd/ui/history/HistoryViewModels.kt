@@ -62,7 +62,7 @@ class HistoryViewModel @Inject constructor(
         val trips = tripDao.observeAll().first()
         if (trips.isEmpty()) return@withContext null
         val names = driverDao.observeAll().first().associate { it.id to it.name }
-        File(Sharing.sharedDir(context), "ecodrive-trips.csv").apply { writeText(TripCsv.build(trips, names)) }
+        File(Sharing.sharedDir(context), "androbd-trips.csv").apply { writeText(TripCsv.build(trips, names)) }
     }
 }
 
