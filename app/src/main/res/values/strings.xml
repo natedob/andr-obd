@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">EcoDrive OBD</string>
+    <string name="app_name">AndrOBD</string>
 
     <string name="nav_drive">Drive</string>
     <string name="nav_history">History</string>
@@ -157,7 +157,7 @@
     <string name="trend_title">Score trend</string>
     <string name="route_title">Route</string>
     <string name="route_legend">Coloured by eco score: green is good, red needs work.</string>
-    <string name="card_footer">EcoDrive OBD</string>
+    <string name="card_footer">AndrOBD</string>
 
     <!-- Settings -->
     <string name="settings_vehicle">Vehicle profile</string>
@@ -179,5 +179,5 @@
     <string name="set_alert">Speed alert</string>
     <string name="set_alert_sub">Beeps when you stay above the limit below.</string>
     <string name="set_alert_limit">Alert above (km/h)</string>
-    <string name="about">EcoDrive OBD %1$s</string>
+    <string name="about">AndrOBD %1$s</string>
 </resources>
