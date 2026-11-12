@@ -1,0 +1,206 @@
+package com.natan.obd.trip
+
+import android.content.Context
+import android.os.SystemClock
+import com.natan.obd.R
+import com.natan.obd.bluetooth.BluetoothController
+import com.natan.obd.data.AppSettings
+import com.natan.obd.data.SettingsRepository
+import com.natan.obd.data.Trip
+import com.natan.obd.data.TripDao
+import com.natan.obd.data.TripSample
+import com.natan.obd.obd.ElmObdSource
+import com.natan.obd.obd.ObdSample
+import com.natan.obd.obd.ObdSource
+import com.natan.obd.obd.SimulatedObdSource
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/** What the dashboard shows while a trip runs. */
+data class LiveData(
+    val hasData: Boolean = false,
+    val rpm: Int = 0,
+    val speedKmh: Int = 0,
+    val loadPercent: Double = 0.0,
+    val elapsedSec: Int = 0,
+    val distanceKm: Double = 0.0,
+    val avgSpeedKmh: Int = 0,
+)
+
+sealed interface TripState {
+    data object Idle : TripState
+    data class Running(val driverName: String, val live: LiveData) : TripState
+}
+
+sealed interface TripEvent {
+    data class Saved(val tripId: Long) : TripEvent
+    data class Message(val text: String) : TripEvent
+}
+
+/**
+ * The single owner of a trip's lifecycle. It lives in its own process-wide scope, so a trip survives
+ * screen rotation and navigation; [TripService] just keeps the process alive and shows the
+ * notification. Everything is one sequential collection of samples (no mutexes, no sleeps).
+ */
+@Singleton
+class TripController @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val bluetooth: BluetoothController,
+    private val settingsRepository: SettingsRepository,
+    private val tripDao: TripDao,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var job: Job? = null
+    @Volatile private var stopSignal: CompletableDeferred<Unit>? = null
+
+    private val _state = MutableStateFlow<TripState>(TripState.Idle)
+    val state: StateFlow<TripState> = _state
+
+    private val _events = MutableSharedFlow<TripEvent>(extraBufferCapacity = 8)
+    val events: SharedFlow<TripEvent> = _events
+
+    @Synchronized
+    fun start(driverId: Long, driverName: String) {
+        if (job?.isActive == true) return // starting twice must not spawn a second set of loops
+        val signal = CompletableDeferred<Unit>()
+        stopSignal = signal
+        _state.value = TripState.Running(driverName, LiveData())
+        job = scope.launch { runTrip(driverId, driverName, signal) }
+    }
+
+    /** Ends the trip and saves it. Safe to call at any time, including when idle. */
+    fun stop() {
+        stopSignal?.complete(Unit)
+    }
+
+    private suspend fun runTrip(driverId: Long, driverName: String, stop: CompletableDeferred<Unit>) {
+        val settings = settingsRepository.settings.first()
+        val source = createSource(settings)
+        if (source == null) {
+            _events.emit(TripEvent.Message(context.getString(R.string.err_no_adapter)))
+            _state.value = TripState.Idle
+            return
+        }
+
+        val accumulator = TripAccumulator(settings.tankLitres)
+        val startedAt = System.currentTimeMillis()
+        val t0 = SystemClock.elapsedRealtime()
+        var failure: String? = null
+        var linkLost = false
+
+        // Sampling runs in a child job so a stop request can cancel it and we still get to save.
+        val collector = scope.launch {
+            try {
+                source.samples().collect { sample ->
+                    val now = SystemClock.elapsedRealtime() - t0
+                    accumulator.add(sample, now)
+                    publish(driverName, sample, accumulator, now)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                failure = e.message ?: context.getString(R.string.err_link_lost)
+                linkLost = true
+            } catch (e: Exception) {
+                failure = e.message ?: e.javaClass.simpleName
+            }
+        }
+        val stopWatcher = scope.launch { stop.await(); collector.cancel() }
+        collector.join()
+        stopWatcher.cancel()
+
+        withContext(NonCancellable) {
+            if (linkLost) bluetooth.markLost()
+            save(driverId, startedAt, accumulator, settings, failure)
+            _state.value = TripState.Idle
+        }
+    }
+
+    private fun createSource(settings: AppSettings): ObdSource? =
+        if (settings.demoMode) SimulatedObdSource() else bluetooth.openClient()?.let(::ElmObdSource)
+
+    private fun publish(driverName: String, sample: ObdSample, acc: TripAccumulator, nowMs: Long) {
+        val stats = acc.snapshot()
+        _state.value = TripState.Running(
+            driverName,
+            LiveData(
+                hasData = true,
+                rpm = sample.rpm,
+                speedKmh = sample.speedKmh,
+                loadPercent = sample.loadPercent,
+                elapsedSec = (nowMs / 1000).toInt(),
+                distanceKm = stats.distanceKm,
+                avgSpeedKmh = stats.avgSpeed,
+            ),
+        )
+    }
+
+    private suspend fun save(
+        driverId: Long,
+        startedAt: Long,
+        acc: TripAccumulator,
+        settings: AppSettings,
+        failure: String?,
+    ) {
+        val stats = acc.snapshot()
+        if (stats.durationMs < MIN_TRIP_MS) {
+            val text = failure ?: context.getString(R.string.msg_trip_too_short)
+            _events.emit(TripEvent.Message(text))
+            return
+        }
+
+        // Consumption from a few metres of driving is meaningless (and divides by ~0), so require a minimum.
+        val consumption = stats.fuelLitres
+            ?.takeIf { stats.distanceKm >= MIN_DISTANCE_FOR_CONSUMPTION_KM && it > 0 }
+            ?.let { it / stats.distanceKm * 100 }
+        val score = ScoreCalculator.calculate(stats.avgRpm, stats.avgSpeed, stats.avgLoad, consumption, settings.toTargets())
+
+        val trip = Trip(
+            driverId = driverId,
+            startedAt = startedAt,
+            durationSec = (stats.durationMs / 1000).toInt(),
+            distanceKm = stats.distanceKm,
+            avgRpm = stats.avgRpm,
+            avgSpeed = stats.avgSpeed,
+            maxSpeed = stats.maxSpeed,
+            avgLoad = stats.avgLoad,
+            fuelLitres = stats.fuelLitres,
+            consumptionL100 = consumption,
+            score = score.total,
+            speedScore = score.speed,
+            rpmScore = score.rpm,
+            loadScore = score.load,
+            efficiencyScore = score.efficiency,
+        )
+        val samples = acc.points.map { TripSample(tripId = 0, tSec = it.tSec, rpm = it.rpm, speed = it.speed, load = it.load) }
+        try {
+            val id = tripDao.insertWithSamples(trip, samples)
+            if (failure != null) _events.emit(TripEvent.Message(context.getString(R.string.msg_trip_partial)))
+            _events.emit(TripEvent.Saved(id))
+        } catch (e: Exception) {
+            // The driver was deleted mid-trip, or the disk is full: say so instead of crashing the service.
+            _events.emit(TripEvent.Message(context.getString(R.string.msg_trip_save_failed)))
+        }
+    }
+
+    private companion object {
+        const val MIN_TRIP_MS = 10_000L
+        const val MIN_DISTANCE_FOR_CONSUMPTION_KM = 0.5
+    }
+}
