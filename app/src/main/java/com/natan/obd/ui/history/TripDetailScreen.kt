@@ -12,6 +12,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.natan.obd.share.Sharing
+import com.natan.obd.ui.LocalUnits
+import com.natan.obd.ui.Units
+import com.natan.obd.ui.components.RouteMap
+import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -56,6 +67,9 @@ fun TripDetailScreen(onBack: () -> Unit, viewModel: TripDetailViewModel = hiltVi
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
     val trip = state.trip
+    val units = LocalUnits.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -65,8 +79,17 @@ fun TripDetailScreen(onBack: () -> Unit, viewModel: TripDetailViewModel = hiltVi
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back)) }
                 },
                 actions = {
-                    if (trip != null) IconButton(onClick = { confirmDelete = true }) {
-                        Icon(Icons.Default.Delete, stringResource(R.string.common_delete))
+                    if (trip != null) {
+                        IconButton(onClick = {
+                            scope.launch {
+                                viewModel.renderCard(units)?.let {
+                                    Sharing.shareFile(context, it, "image/png", context.getString(R.string.share_title))
+                                }
+                            }
+                        }) { Icon(Icons.Default.Share, stringResource(R.string.share_card)) }
+                        IconButton(onClick = { confirmDelete = true }) {
+                            Icon(Icons.Default.Delete, stringResource(R.string.common_delete))
+                        }
                     }
                 },
             )
@@ -81,9 +104,13 @@ fun TripDetailScreen(onBack: () -> Unit, viewModel: TripDetailViewModel = hiltVi
             ) {
                 Header(trip, state.driverName)
                 Breakdown(trip)
-                Stats(trip)
+                if (state.route.size >= 2) RouteCard(state.route)
+                Stats(trip, units)
                 if (state.samples.size >= 2) {
-                    ChartCard(stringResource(R.string.chart_speed), state.samples.map { it.speed.toFloat() }, Teal, 220f)
+                    ChartCard(
+                        stringResource(R.string.chart_speed, units.speedUnit),
+                        state.samples.map { units.speedValue(it.speed.toDouble()).toFloat() }, Teal, units.speedValue(220.0).toFloat(),
+                    )
                     ChartCard(stringResource(R.string.chart_rpm), state.samples.map { it.rpm.toFloat() }, Amber, 8000f)
                     ChartCard(stringResource(R.string.chart_load), state.samples.map { it.load.toFloat() }, Sky, 100f)
                 }
@@ -152,24 +179,36 @@ private fun BreakdownBar(label: String, score: Int?) {
 }
 
 @Composable
-private fun Stats(trip: Trip) {
+private fun RouteCard(route: List<com.natan.obd.data.RoutePoint>) {
+    SurfaceCard {
+        Text(stringResource(R.string.route_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+        RouteMap(route, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(16.dp)))
+        Text(
+            stringResource(R.string.route_legend), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun Stats(trip: Trip, units: Units) {
     val na = stringResource(R.string.not_available)
     val rows = listOf(
         listOf(
-            stringResource(R.string.tile_distance) to "${formatDecimal(trip.distanceKm)} km",
+            stringResource(R.string.tile_distance) to units.distance(trip.distanceKm),
             stringResource(R.string.tile_time) to formatDuration(trip.durationSec),
         ),
         listOf(
-            stringResource(R.string.tile_avg_speed) to "${trip.avgSpeed} km/h",
-            stringResource(R.string.stat_max_speed) to "${trip.maxSpeed} km/h",
+            stringResource(R.string.tile_avg_speed) to units.speed(trip.avgSpeed),
+            stringResource(R.string.stat_max_speed) to units.speed(trip.maxSpeed),
         ),
         listOf(
             stringResource(R.string.stat_avg_rpm) to "${trip.avgRpm}",
             stringResource(R.string.stat_avg_load) to "${formatDecimal(trip.avgLoad, 0)} %",
         ),
         listOf(
-            stringResource(R.string.stat_fuel) to (trip.fuelLitres?.let { "${formatDecimal(it, 2)} L" } ?: na),
-            stringResource(R.string.stat_consumption) to (trip.consumptionL100?.let { "${formatDecimal(it)} L/100 km" } ?: na),
+            stringResource(R.string.stat_fuel) to (trip.fuelLitres?.let(units::volume) ?: na),
+            stringResource(R.string.stat_consumption) to (trip.consumptionL100?.let(units::consumption) ?: na),
         ),
     )
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

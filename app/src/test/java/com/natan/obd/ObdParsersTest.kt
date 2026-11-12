@@ -13,6 +13,15 @@ class ObdParsersTest {
     @Test fun decodesFuelRate() = assertEquals(5.0, ObdParsers.decode("41 5E 00 64", Pid.FUEL_RATE)!!, 0.01)
     @Test fun decodesMaf() = assertEquals(12.0, ObdParsers.decode("41 10 04 B0", Pid.MAF)!!, 0.01)
 
+    @Test fun decodesVitals() {
+        assertEquals(83.0, ObdParsers.decode("41 05 7B", Pid.COOLANT_TEMP)!!, 0.01) // 123 - 40
+        assertEquals(-10.0, ObdParsers.decode("41 0F 1E", Pid.INTAKE_TEMP)!!, 0.01) // below freezing
+        assertEquals(60.0, ObdParsers.decode("41 5C 64", Pid.OIL_TEMP)!!, 0.01)
+        assertEquals(50.2, ObdParsers.decode("41 11 80", Pid.THROTTLE)!!, 0.1)
+        assertEquals(101.0, ObdParsers.decode("41 0B 65", Pid.MAP)!!, 0.01)
+        assertEquals(14.8, ObdParsers.decode("41 42 39 D0", Pid.VOLTAGE)!!, 0.001)
+    }
+
     @Test fun toleratesSpacelessAndMultilineReplies() {
         assertEquals(1726.0, ObdParsers.decode("410C1AF8", Pid.RPM)!!, 0.01)
         assertEquals(1726.0, ObdParsers.decode("SEARCHING...\r41 0C 1A F8", Pid.RPM)!!, 0.01)

@@ -11,11 +11,18 @@ class ElmObdSource(
     private val pauseBetweenCyclesMs: Long = 50,
 ) : ObdSource {
 
+    private companion object {
+        val VITAL_PIDS = listOf(Pid.THROTTLE, Pid.MAP, Pid.COOLANT_TEMP, Pid.INTAKE_TEMP, Pid.OIL_TEMP, Pid.VOLTAGE)
+    }
+
     private enum class FuelMode { RATE, MAF, LEVEL, NONE }
 
     override fun samples(): Flow<ObdSample> = flow {
         client.initialise()
         val fuelMode = detectFuelMode()
+        // Only poll the vitals this particular car answers.
+        val vitals = VITAL_PIDS.filter { client.read(it) != null }
+        val vitalValues = HashMap<Pid, Double>()
 
         var rpm = 0
         var speed = 0
@@ -38,11 +45,27 @@ class ElmObdSource(
                 FuelMode.NONE -> Unit
             }
 
+            // Vitals change slowly, so one per cycle in rotation keeps the fast loop fast.
+            if (vitals.isNotEmpty()) {
+                val pid = vitals[cycle % vitals.size]
+                client.read(pid)?.let { vitalValues[pid] = it }
+            }
+
             // A single "NO DATA" is normal; a long run of them means the link is dead.
             failedCycles = if (answered) 0 else failedCycles + 1
             if (failedCycles >= 10) throw IOException("Lost contact with the car")
 
-            emit(ObdSample(rpm, speed, load, rate, level))
+            emit(
+                ObdSample(
+                    rpm, speed, load, rate, level,
+                    coolantC = vitalValues[Pid.COOLANT_TEMP]?.toInt(),
+                    intakeC = vitalValues[Pid.INTAKE_TEMP]?.toInt(),
+                    oilC = vitalValues[Pid.OIL_TEMP]?.toInt(),
+                    throttlePercent = vitalValues[Pid.THROTTLE],
+                    manifoldKpa = vitalValues[Pid.MAP]?.toInt(),
+                    voltage = vitalValues[Pid.VOLTAGE],
+                ),
+            )
             cycle++
             delay(pauseBetweenCyclesMs)
         }

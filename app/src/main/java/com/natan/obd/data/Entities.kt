@@ -54,6 +54,21 @@ data class TripSample(
     val load: Double,
 )
 
+/** One GPS fix along a trip, with the instantaneous eco score used to colour the route on the map. */
+@Entity(
+    tableName = "route_points",
+    foreignKeys = [ForeignKey(Trip::class, ["id"], ["tripId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("tripId")],
+)
+data class RoutePoint(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val tripId: Long,
+    val tSec: Int,
+    val lat: Double,
+    val lon: Double,
+    val eco: Int,
+)
+
 data class DriverSummary(
     val id: Long,
     val name: String,

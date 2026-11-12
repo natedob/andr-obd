@@ -1,6 +1,18 @@
 package com.natan.obd.ui.history
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.natan.obd.share.Sharing
+import com.natan.obd.ui.LocalUnits
+import com.natan.obd.ui.Units
+import com.natan.obd.ui.components.LineChart
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,7 +45,6 @@ import com.natan.obd.data.Trip
 import com.natan.obd.ui.components.EmptyState
 import com.natan.obd.ui.components.ScreenTitle
 import com.natan.obd.ui.components.SurfaceCard
-import com.natan.obd.ui.formatDecimal
 import com.natan.obd.ui.formatDuration
 import com.natan.obd.ui.theme.scoreColor
 import java.text.DateFormat
@@ -42,16 +53,41 @@ import java.util.Date
 @Composable
 fun HistoryScreen(onOpenTrip: (Long) -> Unit, viewModel: HistoryViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val units = LocalUnits.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     LazyColumn(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { ScreenTitle(stringResource(R.string.nav_history)) }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                ScreenTitle(stringResource(R.string.nav_history), Modifier.weight(1f))
+                IconButton(onClick = {
+                    scope.launch {
+                        val file = viewModel.exportCsv()
+                        if (file == null) Toast.makeText(context, R.string.export_empty, Toast.LENGTH_SHORT).show()
+                        else Sharing.shareFile(context, file, "text/csv", context.getString(R.string.export_title))
+                    }
+                }) { Icon(Icons.Default.FileDownload, stringResource(R.string.export_csv)) }
+            }
+        }
+
+        // The last 20 trips, oldest to newest, so the line reads left to right.
+        val trend = state.trips.take(20).reversed().map { it.score.toFloat() }
+        if (trend.size >= 2) {
+            item {
+                SurfaceCard {
+                    Text(stringResource(R.string.trend_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+                    LineChart(trend, MaterialTheme.colorScheme.primary, maxValue = 100f)
+                }
+            }
+        }
 
         if (state.summaries.any { it.tripCount > 0 }) {
             item { SectionLabel(stringResource(R.string.leaderboard)) }
-            items(state.summaries.filter { it.tripCount > 0 }, key = { "s${it.id}" }) { LeaderboardRow(it, state.summaries.indexOf(it) + 1) }
+            items(state.summaries.filter { it.tripCount > 0 }, key = { "s${it.id}" }) { LeaderboardRow(it, state.summaries.indexOf(it) + 1, units) }
         }
 
         item {
@@ -70,7 +106,7 @@ fun HistoryScreen(onOpenTrip: (Long) -> Unit, viewModel: HistoryViewModel = hilt
             item { EmptyState(stringResource(R.string.history_empty), Modifier.fillMaxWidth()) }
         }
         items(state.trips, key = { it.id }) { trip ->
-            TripRow(trip, state.driverNames[trip.driverId].orEmpty(), onClick = { onOpenTrip(trip.id) })
+            TripRow(trip, state.driverNames[trip.driverId].orEmpty(), units, onClick = { onOpenTrip(trip.id) })
         }
     }
 }
@@ -91,7 +127,7 @@ private fun ScoreBadge(score: Int, size: Int = 48) {
 }
 
 @Composable
-private fun LeaderboardRow(summary: DriverSummary, rank: Int) {
+private fun LeaderboardRow(summary: DriverSummary, rank: Int, units: Units) {
     SurfaceCard(padding = 12) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("#$rank", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -100,7 +136,7 @@ private fun LeaderboardRow(summary: DriverSummary, rank: Int) {
                 Text(summary.name, style = MaterialTheme.typography.titleMedium)
                 Text(
                     pluralStringResource(R.plurals.trip_count, summary.tripCount, summary.tripCount) +
-                        " · ${formatDecimal(summary.totalKm ?: 0.0)} km",
+                        " · ${units.distance(summary.totalKm ?: 0.0)}",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -110,7 +146,7 @@ private fun LeaderboardRow(summary: DriverSummary, rank: Int) {
 }
 
 @Composable
-private fun TripRow(trip: Trip, driverName: String, onClick: () -> Unit) {
+private fun TripRow(trip: Trip, driverName: String, units: Units, onClick: () -> Unit) {
     SurfaceCard(Modifier.clickable(onClick = onClick), padding = 12) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ScoreBadge(trip.score)
@@ -121,8 +157,8 @@ private fun TripRow(trip: Trip, driverName: String, onClick: () -> Unit) {
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    "$driverName · ${formatDecimal(trip.distanceKm)} km · ${formatDuration(trip.durationSec)}" +
-                        (trip.consumptionL100?.let { " · ${formatDecimal(it)} L/100" } ?: ""),
+                    "$driverName · ${units.distance(trip.distanceKm)} · ${formatDuration(trip.durationSec)}" +
+                        (trip.consumptionL100?.let { " · ${units.consumption(it)}" } ?: ""),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

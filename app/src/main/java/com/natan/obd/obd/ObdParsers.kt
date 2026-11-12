@@ -2,7 +2,14 @@ package com.natan.obd.obd
 
 /** The OBD-II mode 01 PIDs we use, with their decoding formulas (SAE J1979). */
 enum class Pid(val code: String, val minBytes: Int, val decode: (IntArray) -> Double) {
+    MONITOR_STATUS("01", 4, { it[0].toDouble() }), // bit 7 = check-engine lamp, bits 0-6 = stored code count
     LOAD("04", 1, { it[0] * 100.0 / 255 }),
+    COOLANT_TEMP("05", 1, { it[0] - 40.0 }), // °C
+    MAP("0B", 1, { it[0].toDouble() }), // intake manifold pressure, kPa
+    INTAKE_TEMP("0F", 1, { it[0] - 40.0 }), // °C
+    THROTTLE("11", 1, { it[0] * 100.0 / 255 }), // %
+    VOLTAGE("42", 2, { (it[0] * 256 + it[1]) / 1000.0 }), // control module voltage, V
+    OIL_TEMP("5C", 1, { it[0] - 40.0 }), // °C
     RPM("0C", 2, { (it[0] * 256 + it[1]) / 4.0 }),
     SPEED("0D", 1, { it[0].toDouble() }),
     MAF("10", 2, { (it[0] * 256 + it[1]) / 100.0 }), // g/s

@@ -7,21 +7,25 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import com.natan.obd.MainActivity
 import com.natan.obd.R
+import com.natan.obd.data.SettingsRepository
+import com.natan.obd.ui.Units
 import com.natan.obd.ui.formatDuration
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -32,9 +36,11 @@ import javax.inject.Inject
 class TripService : Service() {
 
     @Inject lateinit var controller: TripController
+    @Inject lateinit var settingsRepository: SettingsRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var observing = false
+    @Volatile private var units = Units(imperial = false)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,10 +55,12 @@ class TripService : Service() {
         val driverName = intent?.getStringExtra(EXTRA_DRIVER_NAME).orEmpty()
 
         // Must happen right away after startForegroundService(), before any real work.
-        ServiceCompat.startForeground(
-            this, NOTIFICATION_ID, buildNotification(driverName, LiveData()),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-        )
+        // The location type may only be claimed when the permission is actually held (Android 14+ enforces it).
+        val locationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+            (if (locationGranted) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(driverName, LiveData()), type)
         if (driverId < 0) {
             stopSelf()
             return START_NOT_STICKY
@@ -63,6 +71,7 @@ class TripService : Service() {
             observing = true
             val manager = getSystemService(NotificationManager::class.java)
             scope.launch {
+                units = Units(settingsRepository.settings.first().useImperial)
                 controller.state.collect { state ->
                     when (state) {
                         is TripState.Running -> manager.notify(NOTIFICATION_ID, buildNotification(state.driverName, state.live))
@@ -94,10 +103,7 @@ class TripService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val text = if (live.hasData) {
-            getString(
-                R.string.notif_text, formatDuration(live.elapsedSec),
-                String.format(Locale.getDefault(), "%.1f", live.distanceKm), live.speedKmh,
-            )
+            getString(R.string.notif_text, formatDuration(live.elapsedSec), units.distance(live.distanceKm), units.speed(live.speedKmh))
         } else getString(R.string.notif_connecting)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_trip)

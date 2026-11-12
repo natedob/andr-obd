@@ -4,6 +4,7 @@
     <string name="nav_drive">Drive</string>
     <string name="nav_history">History</string>
     <string name="nav_settings">Settings</string>
+    <string name="nav_diagnostics">Diagnostics</string>
 
     <string name="common_add">Add</string>
     <string name="common_cancel">Cancel</string>
@@ -36,6 +37,13 @@
     <string name="btn_stop">Stop and save trip</string>
     <string name="hint_add_driver">Add a driver to get started.</string>
     <string name="hint_connect">Connect an adapter, or switch on demo mode.</string>
+    <string name="vitals_title">Engine vitals</string>
+    <string name="vital_coolant">Coolant</string>
+    <string name="vital_oil">Oil</string>
+    <string name="vital_intake">Intake air</string>
+    <string name="vital_throttle">Throttle</string>
+    <string name="vital_map">Manifold</string>
+    <string name="vital_voltage">Battery</string>
     <string name="drive_warming_up">Talking to the car…</string>
 
     <!-- Messages and errors -->
@@ -47,13 +55,15 @@
     <string name="err_bluetooth_off">Bluetooth is turned off.</string>
     <string name="err_bt_permission">Bluetooth permission is required.</string>
     <string name="err_connect_failed">Could not connect. Is the adapter plugged in and in range?</string>
+    <string name="err_clear_failed">The car did not confirm clearing the codes.</string>
+    <string name="err_trip_running">Stop the current trip first. The adapter can only do one thing at a time.</string>
     <string name="err_link_lost">Connection to the adapter was lost.</string>
     <string name="err_no_adapter">No adapter connected.</string>
 
     <!-- Notification -->
     <string name="notif_channel">Active trip</string>
     <string name="notif_title">Trip in progress · %1$s</string>
-    <string name="notif_text">%1$s · %2$s km · %3$d km/h</string>
+    <string name="notif_text">%1$s · %2$s · %3$s</string>
     <string name="notif_connecting">Talking to the car…</string>
     <string name="notif_stop">Stop</string>
 
@@ -82,9 +92,49 @@
     <string name="stat_avg_load">Avg load</string>
     <string name="stat_fuel">Fuel used</string>
     <string name="stat_consumption">Consumption</string>
-    <string name="chart_speed">Speed (km/h)</string>
+    <string name="chart_speed">Speed (%1$s)</string>
     <string name="chart_rpm">Engine speed (rpm)</string>
     <string name="chart_load">Engine load (%)</string>
+
+    <!-- Coaching -->
+    <string name="coach_good">Smooth and efficient. Keep it up!</string>
+    <string name="coach_slow">Ease off: above your target speed</string>
+    <string name="coach_shift">High revs: shift up or ease off</string>
+    <string name="coach_throttle">Heavy engine load: lighter on the throttle</string>
+    <string name="coach_idling">Stopped for a while: consider switching the engine off</string>
+    <string name="coach_none">Live eco score</string>
+    <string name="coach_speeding">Speed alert: slow down!</string>
+    <string name="coach_score">%1$d</string>
+
+    <!-- Diagnostics -->
+    <string name="diag_title">Diagnostics</string>
+    <string name="diag_intro">Read the trouble codes behind the check-engine light.</string>
+    <string name="diag_scan">Scan for codes</string>
+    <string name="diag_scanning">Talking to the car…</string>
+    <string name="diag_mil_on">Check-engine light is ON</string>
+    <string name="diag_mil_off">Check-engine light is off</string>
+    <string name="diag_stored">Stored codes</string>
+    <string name="diag_pending">Pending codes</string>
+    <string name="diag_pending_sub">Seen once, not yet confirmed.</string>
+    <string name="diag_none">No codes. All clear!</string>
+    <string name="diag_unknown">Manufacturer-specific or unknown code. Search the code with your car brand.</string>
+    <string name="diag_clear">Clear codes</string>
+    <string name="diag_clear_title">Clear trouble codes?</string>
+    <string name="diag_clear_body">This turns the check-engine light off and resets the car\'s emission monitors. If the fault is still there, the codes come back. Write them down first.</string>
+    <string name="diag_cleared">Codes cleared.</string>
+    <string name="diag_needs_connection">Connect your adapter on the Drive tab (or turn on demo mode) to scan.</string>
+    <string name="diag_trip_running">A trip is running. Stop it before scanning.</string>
+
+    <!-- Share / export / map -->
+    <string name="share_card">Share score card</string>
+    <string name="share_title">Share your trip</string>
+    <string name="export_csv">Export trips as CSV</string>
+    <string name="export_title">Export trips</string>
+    <string name="export_empty">No trips to export yet.</string>
+    <string name="trend_title">Score trend</string>
+    <string name="route_title">Route</string>
+    <string name="route_legend">Coloured by eco score: green is good, red needs work.</string>
+    <string name="card_footer">EcoDrive OBD</string>
 
     <!-- Settings -->
     <string name="settings_vehicle">Vehicle profile</string>
@@ -97,5 +147,12 @@
     <string name="settings_data">Data</string>
     <string name="clear_history">Delete all trips</string>
     <string name="clear_confirm">Every recorded trip will be permanently deleted. Drivers are kept.</string>
+    <string name="set_units">Imperial units</string>
+    <string name="set_units_sub">Show miles, mph, gallons and °F. Targets below are always metric.</string>
+    <string name="set_route">Record route (GPS)</string>
+    <string name="set_route_sub">Draws your trip on a map, coloured by how well you drove. Stored only on this phone.</string>
+    <string name="set_alert">Speed alert</string>
+    <string name="set_alert_sub">Beeps when you stay above the limit below.</string>
+    <string name="set_alert_limit">Alert above (km/h)</string>
     <string name="about">EcoDrive OBD %1$s</string>
 </resources>

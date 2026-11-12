@@ -1,11 +1,14 @@
 package com.natan.obd.trip
 
 import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.SystemClock
 import com.natan.obd.R
 import com.natan.obd.bluetooth.BluetoothController
 import com.natan.obd.data.AppSettings
 import com.natan.obd.data.SettingsRepository
+import com.natan.obd.data.RoutePoint
 import com.natan.obd.data.Trip
 import com.natan.obd.data.TripDao
 import com.natan.obd.data.TripSample
@@ -13,6 +16,9 @@ import com.natan.obd.obd.ElmObdSource
 import com.natan.obd.obd.ObdSample
 import com.natan.obd.obd.ObdSource
 import com.natan.obd.obd.SimulatedObdSource
+import com.natan.obd.route.LocationTracker
+import com.natan.obd.route.RouteRecorder
+import com.natan.obd.route.SimulatedRoute
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -25,10 +31,12 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,7 +49,23 @@ data class LiveData(
     val elapsedSec: Int = 0,
     val distanceKm: Double = 0.0,
     val avgSpeedKmh: Int = 0,
+    val vitals: Vitals = Vitals(),
+    val coaching: Coaching = Coaching(),
+    /** True while above the user's speed-alert limit (only ever set when the alert is enabled). */
+    val speeding: Boolean = false,
 )
+
+/** Engine vitals shown on the dashboard; a null field means the car doesn't report it. */
+data class Vitals(
+    val coolantC: Int? = null,
+    val intakeC: Int? = null,
+    val oilC: Int? = null,
+    val throttlePercent: Double? = null,
+    val manifoldKpa: Int? = null,
+    val voltage: Double? = null,
+) {
+    val any: Boolean get() = listOf(coolantC, intakeC, oilC, throttlePercent, manifoldKpa, voltage).any { it != null }
+}
 
 sealed interface TripState {
     data object Idle : TripState
@@ -64,6 +88,7 @@ class TripController @Inject constructor(
     private val bluetooth: BluetoothController,
     private val settingsRepository: SettingsRepository,
     private val tripDao: TripDao,
+    private val locationTracker: LocationTracker,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
@@ -99,18 +124,51 @@ class TripController @Inject constructor(
         }
 
         val accumulator = TripAccumulator(settings.tankLitres)
+        val coach = CoachingAdvisor(settings.toTargets())
+        val alert = if (settings.speedAlertEnabled) SpeedAlertPolicy(settings.speedAlertKmh) else null
+        val recorder = RouteRecorder()
+        val eco = AtomicInteger(0)
+        // Demo mode walks a fake route at the simulated speed; a real trip uses the phone's GPS.
+        val fakeRoute = if (settings.demoMode && settings.recordRoute) {
+            val start = locationTracker.lastKnown()
+            SimulatedRoute(start?.latitude ?: SimulatedRoute.FALLBACK_LAT, start?.longitude ?: SimulatedRoute.FALLBACK_LON)
+        } else null
         val startedAt = System.currentTimeMillis()
         val t0 = SystemClock.elapsedRealtime()
         var failure: String? = null
         var linkLost = false
 
+        // GPS is a bonus: if it fails or isn't allowed, the trip carries on without a route.
+        val gps = if (!settings.demoMode && settings.recordRoute && locationTracker.hasPermission()) {
+            scope.launch {
+                try {
+                    locationTracker.locations().collect { loc ->
+                        recorder.add(loc.latitude, loc.longitude, SystemClock.elapsedRealtime() - t0, eco.get())
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // ignore: no route, but the trip itself is unaffected
+                }
+            }
+        } else null
+
         // Sampling runs in a child job so a stop request can cancel it and we still get to save.
         val collector = scope.launch {
             try {
+                var previousMs = 0L
                 source.samples().collect { sample ->
                     val now = SystemClock.elapsedRealtime() - t0
                     accumulator.add(sample, now)
-                    publish(driverName, sample, accumulator, now)
+                    val coaching = coach.update(sample.rpm, sample.speedKmh, sample.loadPercent, now)
+                    eco.set(coaching.ecoNow)
+                    if (alert?.update(sample.speedKmh, now) == true) beep()
+                    fakeRoute?.let {
+                        it.advance(sample.speedKmh, now - previousMs)
+                        recorder.add(it.lat, it.lon, now, coaching.ecoNow)
+                    }
+                    previousMs = now
+                    publish(driverName, sample, accumulator, now, coaching, alert?.isOver == true)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -124,10 +182,11 @@ class TripController @Inject constructor(
         val stopWatcher = scope.launch { stop.await(); collector.cancel() }
         collector.join()
         stopWatcher.cancel()
+        gps?.cancel()
 
         withContext(NonCancellable) {
             if (linkLost) bluetooth.markLost()
-            save(driverId, startedAt, accumulator, settings, failure)
+            save(driverId, startedAt, accumulator, recorder, settings, failure)
             _state.value = TripState.Idle
         }
     }
@@ -135,7 +194,26 @@ class TripController @Inject constructor(
     private fun createSource(settings: AppSettings): ObdSource? =
         if (settings.demoMode) SimulatedObdSource() else bluetooth.openClient()?.let(::ElmObdSource)
 
-    private fun publish(driverName: String, sample: ObdSample, acc: TripAccumulator, nowMs: Long) {
+    /** A short double-beep on the notification stream; failures (some devices lack the tone) are harmless. */
+    private fun beep() {
+        scope.launch {
+            runCatching {
+                val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90)
+                tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 500)
+                delay(700)
+                tone.release()
+            }
+        }
+    }
+
+    private fun publish(
+        driverName: String,
+        sample: ObdSample,
+        acc: TripAccumulator,
+        nowMs: Long,
+        coaching: Coaching,
+        speeding: Boolean,
+    ) {
         val stats = acc.snapshot()
         _state.value = TripState.Running(
             driverName,
@@ -147,6 +225,12 @@ class TripController @Inject constructor(
                 elapsedSec = (nowMs / 1000).toInt(),
                 distanceKm = stats.distanceKm,
                 avgSpeedKmh = stats.avgSpeed,
+                vitals = Vitals(
+                    sample.coolantC, sample.intakeC, sample.oilC,
+                    sample.throttlePercent, sample.manifoldKpa, sample.voltage,
+                ),
+                coaching = coaching,
+                speeding = speeding,
             ),
         )
     }
@@ -155,6 +239,7 @@ class TripController @Inject constructor(
         driverId: Long,
         startedAt: Long,
         acc: TripAccumulator,
+        recorder: RouteRecorder,
         settings: AppSettings,
         failure: String?,
     ) {
@@ -189,8 +274,9 @@ class TripController @Inject constructor(
             efficiencyScore = score.efficiency,
         )
         val samples = acc.points.map { TripSample(tripId = 0, tSec = it.tSec, rpm = it.rpm, speed = it.speed, load = it.load) }
+        val route = recorder.fixes.map { RoutePoint(tripId = 0, tSec = it.tSec, lat = it.lat, lon = it.lon, eco = it.eco) }
         try {
-            val id = tripDao.insertWithSamples(trip, samples)
+            val id = tripDao.insertWithSamples(trip, samples, route)
             if (failure != null) _events.emit(TripEvent.Message(context.getString(R.string.msg_trip_partial)))
             _events.emit(TripEvent.Saved(id))
         } catch (e: Exception) {

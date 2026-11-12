@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "EcoDriveObd"
+rootProject.name = "andr-obd"
 include(":app")

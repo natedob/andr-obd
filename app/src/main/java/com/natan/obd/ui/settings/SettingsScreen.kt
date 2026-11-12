@@ -10,6 +10,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +43,15 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         ScreenTitle(stringResource(R.string.nav_settings))
+
+        SurfaceCard {
+            SwitchRow(R.string.set_units, R.string.set_units_sub, loaded.useImperial) { v -> viewModel.update { it.copy(useImperial = v) } }
+            SwitchRow(R.string.set_route, R.string.set_route_sub, loaded.recordRoute) { v -> viewModel.update { it.copy(recordRoute = v) } }
+            SwitchRow(R.string.set_alert, R.string.set_alert_sub, loaded.speedAlertEnabled) { v -> viewModel.update { it.copy(speedAlertEnabled = v) } }
+            if (loaded.speedAlertEnabled) {
+                NumberField(R.string.set_alert_limit, loaded.speedAlertKmh.toDouble(), decimal = false) { v -> viewModel.update { it.copy(speedAlertKmh = v.toInt()) } }
+            }
+        }
 
         SurfaceCard {
             Text(stringResource(R.string.settings_vehicle), style = MaterialTheme.typography.titleMedium)
@@ -82,6 +94,17 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
             },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
+    }
+}
+
+@Composable
+private fun SwitchRow(titleRes: Int, subtitleRes: Int, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(subtitleRes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

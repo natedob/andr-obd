@@ -16,6 +16,7 @@ class SimulatedObdSource(
         var speed = 0.0
         var target = 40.0
         var tick = 0
+        var coolant = 22.0 // starts cold and warms up like a real engine
         while (true) {
             if (tick % 50 == 0) target = if (random.nextInt(8) == 0) 0.0 else random.nextDouble(25.0, 115.0)
             val before = speed
@@ -26,7 +27,19 @@ class SimulatedObdSource(
             val load = (18 + speed * 0.28 + max(0.0, accel) * 14 + random.nextDouble(-2.0, 2.0)).coerceIn(5.0, 95.0)
             val fuelRate = 0.8 + load * 0.075 + speed * 0.01
 
-            emit(ObdSample(rpm.toInt(), speed.toInt(), load, fuelRateLph = fuelRate))
+            coolant += (90.0 - coolant) * 0.004 // asymptotically approaches operating temperature
+
+            emit(
+                ObdSample(
+                    rpm.toInt(), speed.toInt(), load, fuelRateLph = fuelRate,
+                    coolantC = coolant.toInt(),
+                    intakeC = (28 + speed * 0.05 + random.nextDouble(-0.5, 0.5)).toInt(),
+                    oilC = (coolant + 6).toInt(),
+                    throttlePercent = (load * 0.55 + max(0.0, accel) * 6).coerceIn(0.0, 100.0),
+                    manifoldKpa = (28 + load * 0.7).toInt(),
+                    voltage = 14.1 + random.nextDouble(-0.15, 0.15),
+                ),
+            )
             tick++
             delay(periodMs)
         }

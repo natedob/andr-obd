@@ -9,6 +9,13 @@ data class ObdSample(
     val loadPercent: Double,
     val fuelRateLph: Double? = null,
     val fuelLevelPercent: Double? = null,
+    // Engine vitals: null when the car doesn't report them. Shown live, not part of the trip score.
+    val coolantC: Int? = null,
+    val intakeC: Int? = null,
+    val oilC: Int? = null,
+    val throttlePercent: Double? = null,
+    val manifoldKpa: Int? = null,
+    val voltage: Double? = null,
 )
 
 /** Where vehicle data comes from: a real adapter or the simulator. */

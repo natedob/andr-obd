@@ -25,7 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
@@ -63,12 +66,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.natan.obd.R
 import com.natan.obd.bluetooth.LinkState
 import com.natan.obd.data.Driver
+import com.natan.obd.trip.Hint
 import com.natan.obd.trip.LiveData
 import com.natan.obd.trip.TripState
+import com.natan.obd.trip.Vitals
+import com.natan.obd.ui.components.VitalTile
 import com.natan.obd.ui.components.ArcGauge
 import com.natan.obd.ui.components.ScreenTitle
 import com.natan.obd.ui.components.StatTile
 import com.natan.obd.ui.components.SurfaceCard
+import com.natan.obd.ui.LocalUnits
+import com.natan.obd.ui.Units
 import com.natan.obd.ui.formatDecimal
 import com.natan.obd.ui.formatDuration
 import com.natan.obd.ui.theme.Amber
@@ -76,6 +84,7 @@ import com.natan.obd.ui.theme.Coral
 import com.natan.obd.ui.theme.Mint
 import com.natan.obd.ui.theme.Sky
 import com.natan.obd.ui.theme.Teal
+import com.natan.obd.ui.theme.scoreColor
 import kotlinx.coroutines.launch
 
 @Composable
@@ -110,6 +119,7 @@ fun DriveScreen(
         else scope.launch { snackbar.showSnackbar(context.getString(R.string.err_bt_permission)) }
     }
 
+    val units = LocalUnits.current
     val running = state.trip as? TripState.Running
     val canStart = state.selectedDriver != null &&
         (state.settings.demoMode || state.link is LinkState.Connected)
@@ -140,7 +150,11 @@ fun DriveScreen(
             onDisconnect = viewModel::disconnect,
         )
 
-        Dashboard(live = running?.live ?: LiveData(), running = running != null)
+        if (running != null && running.live.hasData) CoachingBanner(running.live)
+
+        Dashboard(live = running?.live ?: LiveData(), units = units)
+
+        if (running != null && running.live.vitals.any) VitalsSection(running.live.vitals, units)
 
         if (running != null && !running.live.hasData) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -149,9 +163,9 @@ fun DriveScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val live = running?.live ?: LiveData()
-            StatTile(stringResource(R.string.tile_distance), "${formatDecimal(live.distanceKm)} km", Modifier.weight(1f))
+            StatTile(stringResource(R.string.tile_distance), units.distance(live.distanceKm), Modifier.weight(1f))
             StatTile(stringResource(R.string.tile_time), formatDuration(live.elapsedSec), Modifier.weight(1f))
-            StatTile(stringResource(R.string.tile_avg_speed), "${live.avgSpeedKmh} km/h", Modifier.weight(1f))
+            StatTile(stringResource(R.string.tile_avg_speed), units.speed(live.avgSpeedKmh), Modifier.weight(1f))
         }
 
         if (running != null) {
@@ -166,7 +180,7 @@ fun DriveScreen(
             }
         } else {
             Button(
-                onClick = { requestAndStart(context, viewModel, startPermissions::launch) },
+                onClick = { requestAndStart(context, viewModel, state.settings.recordRoute, startPermissions::launch) },
                 enabled = canStart,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
             ) {
@@ -213,8 +227,12 @@ private fun hasBluetoothPermission(context: Context): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
-private fun requestAndStart(context: Context, vm: DriveViewModel, launch: (Array<String>) -> Unit) {
+private fun requestAndStart(context: Context, vm: DriveViewModel, recordRoute: Boolean, launch: (Array<String>) -> Unit) {
     val needed = buildList {
+        if (recordRoute) {
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_CONNECT)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
     }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
@@ -304,13 +322,38 @@ private fun ConnectionCard(
 }
 
 @Composable
-private fun Dashboard(live: LiveData, running: Boolean) {
+private fun CoachingBanner(live: LiveData) {
+    val coaching = live.coaching
+    val (textRes, color, icon) = if (live.speeding) {
+        Triple(R.string.coach_speeding, Coral, Icons.Default.Warning)
+    } else when (coaching.hint) {
+        Hint.GOOD -> Triple(R.string.coach_good, Mint, Icons.Default.CheckCircle)
+        Hint.SLOW_DOWN -> Triple(R.string.coach_slow, Amber, Icons.Default.Warning)
+        Hint.SHIFT_UP -> Triple(R.string.coach_shift, Amber, Icons.Default.Warning)
+        Hint.EASE_THROTTLE -> Triple(R.string.coach_throttle, Amber, Icons.Default.Warning)
+        Hint.IDLING -> Triple(R.string.coach_idling, Sky, Icons.Default.Info)
+        Hint.NONE -> Triple(R.string.coach_none, MaterialTheme.colorScheme.onSurfaceVariant, Icons.Default.Info)
+    }
+    SurfaceCard(padding = 14) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = color)
+            Spacer(Modifier.size(12.dp))
+            Text(stringResource(textRes), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.size(12.dp))
+            Text(stringResource(R.string.coach_score, coaching.ecoNow), style = MaterialTheme.typography.titleLarge, color = scoreColor(coaching.ecoNow))
+        }
+    }
+}
+
+@Composable
+private fun Dashboard(live: LiveData, units: Units) {
     SurfaceCard {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             ArcGauge(
-                value = live.speedKmh.toFloat(), max = 220f,
-                label = stringResource(R.string.gauge_speed), unit = "km/h",
-                colors = listOf(Teal, Sky, Amber), gaugeSize = 240.dp, big = true,
+                value = units.speedValue(live.speedKmh.toDouble()).toFloat(), max = units.speedValue(220.0).toFloat(),
+                label = stringResource(R.string.gauge_speed), unit = units.speedUnit,
+                colors = if (live.speeding) listOf(Coral, Coral) else listOf(Teal, Sky, Amber),
+                gaugeSize = 240.dp, big = true,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 ArcGauge(
@@ -326,6 +369,48 @@ private fun Dashboard(live: LiveData, running: Boolean) {
             }
         }
     }
+}
+
+@Composable
+private fun VitalsSection(v: Vitals, units: Units) {
+    // Each entry is (label, text, 0..1 position in range, colour); only readings the car reports are shown.
+    val tiles = buildList {
+        v.coolantC?.let { add(Vital(R.string.vital_coolant, units.temperature(it), (it - 40) / 80f, coolantColor(it))) }
+        v.oilC?.let { add(Vital(R.string.vital_oil, units.temperature(it), (it - 40) / 100f, coolantColor(it - 10))) }
+        v.intakeC?.let { add(Vital(R.string.vital_intake, units.temperature(it), (it + 20) / 100f, Sky)) }
+        v.throttlePercent?.let { add(Vital(R.string.vital_throttle, "${it.toInt()} %", it.toFloat() / 100f, Teal)) }
+        v.manifoldKpa?.let { add(Vital(R.string.vital_map, "$it kPa", it / 255f, Teal)) }
+        v.voltage?.let { add(Vital(R.string.vital_voltage, "${formatDecimal(it)} V", ((it - 10) / 5).toFloat(), voltageColor(it))) }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            stringResource(R.string.vitals_title).uppercase(), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        tiles.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { t -> VitalTile(stringResource(t.label), t.text, t.fraction, t.color, Modifier.weight(1f)) }
+                // Pad short rows so tiles keep the same width.
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+private class Vital(val label: Int, val text: String, val fraction: Float, val color: androidx.compose.ui.graphics.Color)
+
+/** Cold engines are blue-ish, the normal band is green, and overheating turns amber then red. */
+private fun coolantColor(c: Int) = when {
+    c < 60 -> Sky
+    c <= 100 -> Mint
+    c <= 110 -> Amber
+    else -> Coral
+}
+
+private fun voltageColor(v: Double) = when {
+    v < 11.8 -> Coral
+    v < 12.4 -> Amber
+    else -> Mint
 }
 
 @Composable

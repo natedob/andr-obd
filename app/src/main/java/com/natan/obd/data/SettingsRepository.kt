@@ -26,6 +26,10 @@ data class AppSettings(
     val demoMode: Boolean = false,
     val lastDeviceAddress: String? = null,
     val selectedDriverId: Long = -1,
+    val useImperial: Boolean = false,
+    val recordRoute: Boolean = false,
+    val speedAlertEnabled: Boolean = false,
+    val speedAlertKmh: Int = 130,
 ) {
     fun toTargets() = ScoreTargets(optimalRpm, optimalSpeed, optimalLoad, optimalConsumption)
 }
@@ -47,6 +51,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             prefs[CONS] = new.optimalConsumption
             prefs[DEMO] = new.demoMode
             prefs[DRIVER] = new.selectedDriverId
+            prefs[IMPERIAL] = new.useImperial
+            prefs[ROUTE] = new.recordRoute
+            prefs[ALERT_ON] = new.speedAlertEnabled
+            prefs[ALERT_KMH] = new.speedAlertKmh
             if (new.lastDeviceAddress == null) prefs.remove(DEVICE) else prefs[DEVICE] = new.lastDeviceAddress
         }
     }
@@ -62,6 +70,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
             demoMode = this[DEMO] ?: d.demoMode,
             lastDeviceAddress = this[DEVICE],
             selectedDriverId = this[DRIVER] ?: d.selectedDriverId,
+            useImperial = this[IMPERIAL] ?: d.useImperial,
+            recordRoute = this[ROUTE] ?: d.recordRoute,
+            speedAlertEnabled = this[ALERT_ON] ?: d.speedAlertEnabled,
+            speedAlertKmh = this[ALERT_KMH] ?: d.speedAlertKmh,
         )
     }
 
@@ -74,5 +86,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val DEMO = booleanPreferencesKey("demo_mode")
         val DEVICE = stringPreferencesKey("last_device")
         val DRIVER = longPreferencesKey("selected_driver")
+        val IMPERIAL = booleanPreferencesKey("imperial")
+        val ROUTE = booleanPreferencesKey("record_route")
+        val ALERT_ON = booleanPreferencesKey("speed_alert")
+        val ALERT_KMH = intPreferencesKey("speed_alert_kmh")
     }
 }

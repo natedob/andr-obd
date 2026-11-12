@@ -39,13 +39,20 @@ abstract class TripDao {
     @Insert
     protected abstract suspend fun insertSamples(samples: List<TripSample>)
 
-    /** Trip and samples are written atomically, so history never shows a half-saved trip. */
+    @Insert
+    protected abstract suspend fun insertRoute(points: List<RoutePoint>)
+
+    /** Trip, samples and route are written atomically, so history never shows a half-saved trip. */
     @Transaction
-    open suspend fun insertWithSamples(trip: Trip, samples: List<TripSample>): Long {
+    open suspend fun insertWithSamples(trip: Trip, samples: List<TripSample>, route: List<RoutePoint>): Long {
         val id = insertTrip(trip)
         insertSamples(samples.map { it.copy(tripId = id) })
+        insertRoute(route.map { it.copy(tripId = id) })
         return id
     }
+
+    @Query("SELECT * FROM route_points WHERE tripId = :tripId ORDER BY tSec")
+    abstract suspend fun route(tripId: Long): List<RoutePoint>
 
     @Query("SELECT * FROM trips ORDER BY startedAt DESC")
     abstract fun observeAll(): Flow<List<Trip>>
